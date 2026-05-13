@@ -4,6 +4,7 @@ Scrapes baseball-reference birthday data and checks player vitality.
 
 import logging
 import time
+from datetime import date
 
 import requests
 from bs4 import BeautifulSoup
@@ -41,8 +42,8 @@ def _is_player_alive(player_url: str) -> bool:
 def _parse_all_players() -> list[dict]:
     """
     Fetches the birthdays page and returns every player row sorted by WAR desc.
-    Does NOT check vitality — call check_vitality() on individual players.
-    Each entry: {name, birth_year, war, player_url}
+    Does NOT check vitality — call check_vitality() for players who need it.
+    Each entry: {name, birth_year, year_max, war, player_url}
     """
     html = _fetch(BASE_URL + "/friv/birthdays.cgi")
     soup = BeautifulSoup(html, "html.parser")
@@ -58,6 +59,7 @@ def _parse_all_players() -> list[dict]:
 
         name_cell = row.find("td", {"data-stat": "player"})
         birth_cell = row.find("td", {"data-stat": "birth_year"})
+        year_max_cell = row.find("td", {"data-stat": "year_max"})
         war_cell = row.find("td", {"data-stat": "WAR"})
 
         if not name_cell or not birth_cell:
@@ -76,6 +78,11 @@ def _parse_all_players() -> list[dict]:
             continue
 
         try:
+            year_max = int(year_max_cell.get_text(strip=True))
+        except (ValueError, AttributeError):
+            year_max = 0
+
+        try:
             war = float(war_cell.get_text(strip=True))
         except (ValueError, AttributeError):
             war = 0.0
@@ -83,6 +90,7 @@ def _parse_all_players() -> list[dict]:
         players.append({
             "name": name,
             "birth_year": birth_year,
+            "year_max": year_max,
             "war": war,
             "player_url": player_url,
         })
@@ -103,28 +111,35 @@ def get_birthday_players(top_n: int = 7, other_active: int = 3) -> tuple[list[di
     """
     Returns two lists:
       - top: the top `top_n` players by WAR (any status), with is_alive set
-      - others: the next `other_active` alive players by WAR not already in top
+      - others: up to `other_active` players by WAR who have played in the
+        current season (year_max >= current year) and are not already in top
 
-    Each entry: {name, birth_year, war, is_alive}
+    Active players (year_max >= current year) are guaranteed alive — no page
+    fetch needed. Retired players in the top 7 still get a vitality check.
+
+    Each entry: {name, birth_year, year_max, war, is_alive}
     """
+    current_year = date.today().year
     all_players = _parse_all_players()
 
-    # Check vitality for the top N
+    # Top N: active players are definitively alive; retired ones need a check
     top = all_players[:top_n]
     for player in top:
-        player["is_alive"] = check_vitality(player)
+        if player["year_max"] >= current_year:
+            player["is_alive"] = True
+            log.info("Active (no check needed): %s", player["name"])
+        else:
+            player["is_alive"] = check_vitality(player)
 
     top_urls = {p["player_url"] for p in top}
 
-    # Walk remaining players by WAR, checking vitality until we have enough alive ones
-    others = []
-    for player in all_players[top_n:]:
-        if player["player_url"] in top_urls:
-            continue
-        player["is_alive"] = check_vitality(player)
-        if player["is_alive"]:
-            others.append(player)
-        if len(others) == other_active:
-            break
+    # Other Active Players: year_max >= current year, not already in top
+    others = [
+        p for p in all_players[top_n:]
+        if p["player_url"] not in top_urls and p["year_max"] >= current_year
+    ][:other_active]
+
+    for p in others:
+        p["is_alive"] = True  # played this season → alive
 
     return top, others
