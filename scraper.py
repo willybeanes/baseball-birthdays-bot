@@ -38,10 +38,11 @@ def _is_player_alive(player_url: str) -> bool:
         return True  # assume alive if we can't check
 
 
-def get_top_birthday_players(limit: int = 10) -> list[dict]:
+def _parse_all_players() -> list[dict]:
     """
-    Returns the top `limit` players by career WAR whose birthday is today.
-    Each entry: {name, birth_year, war, is_alive}
+    Fetches the birthdays page and returns every player row sorted by WAR desc.
+    Does NOT check vitality — call check_vitality() on individual players.
+    Each entry: {name, birth_year, war, player_url}
     """
     html = _fetch(BASE_URL + "/friv/birthdays.cgi")
     soup = BeautifulSoup(html, "html.parser")
@@ -52,7 +53,6 @@ def get_top_birthday_players(limit: int = 10) -> list[dict]:
 
     players = []
     for row in table.find("tbody").find_all("tr"):
-        # Skip mid-table header rows
         if "thead" in row.get("class", []):
             continue
 
@@ -88,12 +88,43 @@ def get_top_birthday_players(limit: int = 10) -> list[dict]:
         })
 
     players.sort(key=lambda p: p["war"], reverse=True)
-    top = players[:limit]
+    return players
 
-    for i, player in enumerate(top):
-        log.info("Checking vitality: %s", player["name"])
-        player["is_alive"] = _is_player_alive(player["player_url"])
-        if i < len(top) - 1:
-            time.sleep(0.5)
 
-    return top
+def check_vitality(player: dict) -> bool:
+    """Fetch a player's page and return True if they are alive."""
+    log.info("Checking vitality: %s", player["name"])
+    alive = _is_player_alive(player["player_url"])
+    time.sleep(0.5)
+    return alive
+
+
+def get_birthday_players(top_n: int = 7, other_active: int = 3) -> tuple[list[dict], list[dict]]:
+    """
+    Returns two lists:
+      - top: the top `top_n` players by WAR (any status), with is_alive set
+      - others: the next `other_active` alive players by WAR not already in top
+
+    Each entry: {name, birth_year, war, is_alive}
+    """
+    all_players = _parse_all_players()
+
+    # Check vitality for the top N
+    top = all_players[:top_n]
+    for player in top:
+        player["is_alive"] = check_vitality(player)
+
+    top_urls = {p["player_url"] for p in top}
+
+    # Walk remaining players by WAR, checking vitality until we have enough alive ones
+    others = []
+    for player in all_players[top_n:]:
+        if player["player_url"] in top_urls:
+            continue
+        player["is_alive"] = check_vitality(player)
+        if player["is_alive"]:
+            others.append(player)
+        if len(others) == other_active:
+            break
+
+    return top, others
