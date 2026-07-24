@@ -35,13 +35,25 @@ def _format_player(p: dict) -> str:
     return p["name"]
 
 
+def _creator_line(today: date) -> str | None:
+    if today.month == 7 and today.day == 24:
+        age = today.year - 1989
+        return f"Creator of this bot: Will Harris ({age})"
+    return None
+
+
 def build_post(top: list[dict], others: list[dict]) -> str:
+    today = date.today()
     lines = [_format_player(p) for p in top]
     text = "\n".join(lines)
 
     if others:
         text += "\n\nOther Active Players:\n"
         text += "\n".join(_format_player(p) for p in others)
+
+    creator = _creator_line(today)
+    if creator:
+        text += f"\n\n{creator}"
 
     text += f"\n\nSee more here {BREF_URL}"
 
