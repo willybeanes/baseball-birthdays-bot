@@ -9,16 +9,28 @@ jobs:
   post:
     runs-on: ubuntu-latest
     steps:
+      # One-off: posted manually on 2026-10-06, so skip that day's scheduled run
+      - name: Check skip date
+        id: skip
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$(TZ=America/New_York date +%F)" = "2026-10-06" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.skip.outputs.skip != 'true'
 
       - uses: actions/setup-python@v5
+        if: steps.skip.outputs.skip != 'true'
         with:
           python-version: '3.11'
           cache: pip
 
       - run: pip install -r requirements.txt
+        if: steps.skip.outputs.skip != 'true'
 
       - run: python bot.py
+        if: steps.skip.outputs.skip != 'true'
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
