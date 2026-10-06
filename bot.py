@@ -35,10 +35,15 @@ def _format_player(p: dict) -> str:
     return p["name"]
 
 
+YAPPER_HANDLE = "felina510.bsky.social"
+
+
 def _creator_line(today: date) -> str | None:
     if today.month == 7 and today.day == 24:
         age = today.year - 1989
         return f"Creator of this bot: Will Harris ({age})"
+    if today.month == 10 and today.day == 6:
+        return f"Yapper of Baseball: @{YAPPER_HANDLE}"
     return None
 
 
@@ -96,7 +101,8 @@ def main() -> None:
     post_text = build_post(top, others)
     log.info("Post (%d chars):\n%s", len(post_text), post_text)
 
-    bluesky_client.post_with_link(post_text, BREF_URL, dry_run=DRY_RUN)
+    mentions = [YAPPER_HANDLE] if f"@{YAPPER_HANDLE}" in post_text else []
+    bluesky_client.post_with_link(post_text, BREF_URL, mentions=mentions, dry_run=DRY_RUN)
 
 
 if __name__ == "__main__":
